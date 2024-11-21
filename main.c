@@ -13,10 +13,17 @@
 #include "driverlib/uart.h"
 #include "driverlib/udma.h"
 #include "inc/hw_uart.h"
+#include "driverlib/pwm.h"
 
-#define SIGNAL_SIZE 50*2 // (Fs/f)*Nc
+#define SIGNAL_SIZE 100
+#define PWM_FREQUENCY 100000
+#define SAMPLE_FREQUENCY 10000
 
 uint32_t ui32SysClkFreq;
+uint32_t ui32Load;
+uint32_t ui32PWMClock;
+uint32_t flag_transfer = 0;
+uint32_t index = 0;
 float signal[SIGNAL_SIZE];
 
 
@@ -31,6 +38,51 @@ uint8_t pui8ControlTable[1024];
 uint8_t pui8ControlTable[1024] __attribute__ ((aligned(1024)));
 #endif
 
+void ConfigureTimer(void)
+{
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
+    while(!SysCtlPeripheralReady(SYSCTL_PERIPH_TIMER0));
+
+    TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
+
+    TimerLoadSet(TIMER0_BASE, TIMER_A, ui32SysClkFreq/SAMPLE_FREQUENCY - 1);
+
+    IntEnable(INT_TIMER0A);
+
+    TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
+
+    TimerEnable(TIMER0_BASE, TIMER_A);
+}
+
+void ConfigurePWM(void)
+{
+
+    // Habilitar o PWM e os módulos de GPIO
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_PWM0);
+
+    // PWM do clock
+    PWMClockSet(PWM0_BASE, PWM_SYSCLK_DIV_64);
+
+    // Configuração do GPIO PG0 para PWM
+    GPIOPinConfigure(GPIO_PF2_M0PWM2);
+    GPIOPinTypePWM(GPIO_PORTF_BASE, GPIO_PIN_2);
+
+    // Clock do PWM e valor do LOAD
+    ui32PWMClock = ui32SysClkFreq / 64; // 120MHz/64
+
+    ui32Load = (ui32PWMClock/PWM_FREQUENCY) - 1; // 1875000/100000 
+
+    PWMGenConfigure(PWM0_BASE, PWM_GEN_1, PWM_GEN_MODE_DOWN);
+
+    PWMGenPeriodSet(PWM0_BASE, PWM_GEN_1, ui32Load);
+
+    PWMPulseWidthSet(PWM0_BASE, PWM_OUT_2, ui32Load/2);
+
+    PWMOutputState(PWM0_BASE, PWM_OUT_2_BIT, true);
+
+    PWMGenEnable(PWM0_BASE, PWM_GEN_1);
+}
 
 
 // ---------------------------------------------
@@ -95,10 +147,19 @@ void Receive_Vector(void)
 
 }
 
-void Reset_Vector(void)
+void Timer0IntHandler(void)
 {
-    memset(signal, 0, sizeof(signal));
+
+    TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
+
+    uint32_t duty = ui32Load * (signal[index] / 2) ;
+
+    PWMPulseWidthSet(PWM0_BASE, PWM_OUT_2, duty);
+
+    index = (index + 1) % SIGNAL_SIZE;
 }
+
+
 
 // ---------------------------------------------
 // Main
@@ -109,13 +170,18 @@ int main(void)
     ui32SysClkFreq = SysCtlClockFreqSet((SYSCTL_XTAL_25MHZ |
             SYSCTL_OSC_MAIN | SYSCTL_USE_PLL | SYSCTL_CFG_VCO_480), 120000000);
 
+    ConfigurePWM();
+
+    ConfigureTimer();
+
     ConfigureUART();
 
     ConfigureUDMA();
+
+    IntMasterEnable();
 
     while(1)
     {
         Receive_Vector();
     }
 }
-

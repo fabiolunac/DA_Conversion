@@ -16,7 +16,7 @@
 #include "driverlib/pwm.h"
 
 #define SIGNAL_SIZE 100
-#define PWM_FREQUENCY 100000
+#define PWM_FREQUENCY 20000
 #define SAMPLE_FREQUENCY 10000
 
 uint32_t ui32SysClkFreq;
@@ -71,7 +71,7 @@ void ConfigurePWM(void)
     // Clock do PWM e valor do LOAD
     ui32PWMClock = ui32SysClkFreq / 64; // 120MHz/64
 
-    ui32Load = (ui32PWMClock/PWM_FREQUENCY) - 1; // 1875000/100000 
+    ui32Load = (ui32PWMClock/PWM_FREQUENCY) - 1; // 1875000/100000
 
     PWMGenConfigure(PWM0_BASE, PWM_GEN_1, PWM_GEN_MODE_DOWN);
 
@@ -152,7 +152,7 @@ void Timer0IntHandler(void)
 
     TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
 
-    uint32_t duty = ui32Load * (signal[index] / 2) ;
+    uint32_t duty = signal[index];
 
     PWMPulseWidthSet(PWM0_BASE, PWM_OUT_2, duty);
 
